@@ -19,7 +19,7 @@ class AshokServicesApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => InventoryProvider()),
       ],
       child: MaterialApp(
-        title: 'Ashok Services Ledger',
+        title: 'Smart Ledger Ledger',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.darkTheme,
         home: const DashboardScreen(),

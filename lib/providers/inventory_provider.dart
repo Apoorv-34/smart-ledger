@@ -63,7 +63,7 @@ class InventoryProvider with ChangeNotifier {
          final b = item.brand.toLowerCase();
          if (b == 'apple') aliases = 'iphone iphne mac ipad';
          if (b == 'samsung') aliases = 'galaxy sam';
-         if (b == 'xiaomi') aliases = 'mi redmi poco';
+         if (b == 'xiaomi' || b == 'mi' || b == 'redmi' || b == 'poco') aliases = 'xiaomi mi redmi poco';
          if (b == 'oneplus') aliases = '1+';
          
          final searchableString = '${item.brand} ${item.model} $aliases'.toLowerCase();
@@ -79,22 +79,48 @@ class InventoryProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> sellItem(InventoryItem item) async {
-    if (item.stockCount > 0) {
+  Future<void> sellItem(InventoryItem item, {int quantity = 1, required double priceSold, int? customerId, required String type}) async {
+    if (item.stockCount >= quantity) {
       if (kIsWeb) {
         final index = _mockWebDb.indexWhere((e) => e.id == item.id);
         if (index != -1) {
-          _mockWebDb[index] = _mockWebDb[index].copyWith(stockCount: _mockWebDb[index].stockCount - 1);
+          _mockWebDb[index] = _mockWebDb[index].copyWith(stockCount: _mockWebDb[index].stockCount - quantity);
           if (item.id != null) {
             _mockSalesLog.add({
               'item_id': item.id,
               'timestamp': DateTime.now().toIso8601String(),
+              'price_sold': priceSold,
+              'quantity': quantity,
+              'customer_id': customerId,
+              'sale_type': type,
             });
           }
         }
       } else {
-        await DatabaseHelper.instance.sellItem(item);
+        await DatabaseHelper.instance.sellItem(
+          item, 
+          quantity: quantity, 
+          priceSold: priceSold, 
+          customerId: customerId, 
+          type: type
+        );
       }
+      await fetchItems();
+    }
+  }
+
+  Future<void> undoPastSale(int saleId, int undoQty) async {
+    if (kIsWeb) {
+      // Mock implementation
+    } else {
+      await DatabaseHelper.instance.undoPastSale(saleId, undoQty);
+      await fetchItems();
+    }
+  }
+
+  Future<void> markPastSaleAsDefective(int saleId, int defectiveQty) async {
+    if (!kIsWeb) {
+      await DatabaseHelper.instance.markPastSaleAsDefective(saleId, defectiveQty);
       await fetchItems();
     }
   }
@@ -244,7 +270,7 @@ class InventoryProvider with ChangeNotifier {
     await fetchItems();
   }
 
-  Future<List<Map<String, dynamic>>> fetchAnalytics(DateTime startDate) async {
+  Future<Map<String, dynamic>> fetchAnalytics(DateTime startDate) async {
     if (kIsWeb) {
       final String startDateStr = startDate.toIso8601String();
       final validSales = _mockSalesLog.where((log) => (log['timestamp'] as String).compareTo(startDateStr) >= 0).toList();
@@ -252,6 +278,7 @@ class InventoryProvider with ChangeNotifier {
       final Map<int, Map<String, dynamic>> aggregated = {};
       
       for (var sale in validSales) {
+        if (sale['sale_type'] == 'DEFECTIVE') continue;
         final int itemId = sale['item_id'];
         final item = _mockWebDb.firstWhere(
           (e) => e.id == itemId, 
@@ -269,17 +296,38 @@ class InventoryProvider with ChangeNotifier {
             'total_revenue': 0.0,
           };
         }
-        aggregated[itemId]!['total_sold'] = (aggregated[itemId]!['total_sold'] as int) + 1;
-        aggregated[itemId]!['total_revenue'] = (aggregated[itemId]!['total_revenue'] as double) + item.retailPrice;
+        aggregated[itemId]!['total_sold'] = (aggregated[itemId]!['total_sold'] as int) + (sale['quantity'] as int);
+        aggregated[itemId]!['total_revenue'] = (aggregated[itemId]!['total_revenue'] as double) + (sale['price_sold'] as double);
       }
       
-      final result = aggregated.values.toList();
-      result.sort((a, b) => (b['total_sold'] as int).compareTo(a['total_sold'] as int));
-      return result;
+      final models = aggregated.values.toList();
+      models.sort((a, b) => (b['total_sold'] as int).compareTo(a['total_sold'] as int));
+      
+      return {
+        'topModels': models,
+        'topSpenders': <Map<String, dynamic>>[],
+        'topReturners': <Map<String, dynamic>>[],
+        'topDebtors': <Map<String, dynamic>>[],
+      };
       
     } else {
-      return await DatabaseHelper.instance.getSalesAnalytics(startDate);
+      final models = await DatabaseHelper.instance.getSalesAnalytics(startDate);
+      final spenders = await DatabaseHelper.instance.getCustomerPurchaseAnalytics(startDate);
+      final returners = await DatabaseHelper.instance.getCustomerReturnAnalytics(startDate);
+      final debtors = await DatabaseHelper.instance.getTopDebtors();
+      
+      return {
+        'topModels': models,
+        'topSpenders': spenders,
+        'topReturners': returners,
+        'topDebtors': debtors,
+      };
     }
+  }
+
+  Future<List<Map<String, dynamic>>> getSalesHistory() async {
+    if (kIsWeb) return [];
+    return await DatabaseHelper.instance.getSalesHistory();
   }
 
   // --- PRO FEATURES (Customers & Ledger) ---
@@ -293,6 +341,13 @@ class InventoryProvider with ChangeNotifier {
   Future<void> addCustomer(Customer customer) async {
     if (!kIsWeb) {
       await DatabaseHelper.instance.insertCustomer(customer);
+      await fetchCustomers();
+    }
+  }
+
+  Future<void> archiveCustomer(int customerId) async {
+    if (!kIsWeb) {
+      await DatabaseHelper.instance.archiveCustomer(customerId);
       await fetchCustomers();
     }
   }
@@ -317,7 +372,7 @@ class InventoryProvider with ChangeNotifier {
     }
   }
 
-  Future<void> markDefective(InventoryItem item) async {
+  Future<void> markDefective(InventoryItem item, {int? customerId, String? customerName}) async {
     if (item.stockCount > 0) {
       if (kIsWeb) {
         // Basic web mock decrease
@@ -331,11 +386,23 @@ class InventoryProvider with ChangeNotifier {
         await DatabaseHelper.instance.updateItem(updatedItem);
         
         // Log defect
+        final details = '${item.brand} ${item.model} (${item.qualityGrade})' + (customerName != null ? '\nReturned by: $customerName' : '');
         await DatabaseHelper.instance.insertDefect(Defect(
-          itemDetails: '${item.brand} ${item.model} (${item.qualityGrade})',
+          itemDetails: details,
           quantity: 1,
           dateLogged: DateTime.now().toIso8601String(),
         ));
+
+        // Log negative sale entry
+        if (item.id != null) {
+          await DatabaseHelper.instance.logSale(
+            itemId: item.id!,
+            quantity: -1,
+            priceSold: 0.0,
+            customerId: customerId,
+            type: 'DEFECTIVE',
+          );
+        }
         
         await fetchItems();
         await fetchDefects();
@@ -343,10 +410,16 @@ class InventoryProvider with ChangeNotifier {
     }
   }
 
-  Future<void> resolveDefect(int defectId) async {
+  Future<void> resolveDefect(int defectId, bool isReplacement, {int? itemId, int? quantity}) async {
     if (!kIsWeb) {
       await DatabaseHelper.instance.updateDefectStatus(defectId, 'RESOLVED');
+      
+      if (isReplacement && itemId != null && quantity != null && quantity > 0) {
+        await DatabaseHelper.instance.incrementStock(itemId, quantity);
+      }
+      
       await fetchDefects();
+      await fetchItems();
     }
   }
 }

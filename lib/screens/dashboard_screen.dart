@@ -10,6 +10,7 @@ import 'bulk_stock_screen.dart';
 import 'analytics_screen.dart';
 import 'khata_screen.dart';
 import 'returns_screen.dart';
+import 'sales_history_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({Key? key}) : super(key: key);
@@ -20,6 +21,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final TextEditingController _searchController = TextEditingController();
+  String? _selectedBrand;
 
   @override
   void initState() {
@@ -43,9 +45,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final inventory = Provider.of<InventoryProvider>(context);
 
-    return Scaffold(
+    return PopScope(
+      canPop: _searchController.text.isEmpty && _selectedBrand == null,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        
+        if (_searchController.text.isNotEmpty) {
+          _searchController.clear();
+          _onSearchChanged('');
+        }
+        setState(() {
+          _selectedBrand = null;
+        });
+        FocusScope.of(context).unfocus();
+      },
+      child: Scaffold(
       appBar: AppBar(
-        title: const Text('Smart Ledger'),
+        title: const Text('Smart Ledger Ledger'),
         actions: [
           IconButton(
             icon: const Icon(Icons.bar_chart, color: Colors.blueAccent),
@@ -92,10 +108,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.end,
-                children: const [
-                  Icon(Icons.inventory_2, size: 48, color: AppTheme.primaryColor),
-                  SizedBox(height: 16),
-                  Text('Smart Ledger', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.asset('assets/logo.jpg', width: 64, height: 64, fit: BoxFit.cover),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Smart Ledger Pro', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
                 ],
               ),
             ),
@@ -106,6 +125,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
               onTap: () {
                 Navigator.pop(context);
                 Navigator.push(context, MaterialPageRoute(builder: (context) => KhataScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.history, color: Colors.orange),
+              title: const Text('Sales History', style: TextStyle(color: Colors.white, fontSize: 16)),
+              subtitle: const Text('View and refund past sales', style: TextStyle(color: AppTheme.subtleTextColor)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (context) => SalesHistoryScreen()));
               },
             ),
             ListTile(
@@ -120,7 +148,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
       ),
-      body: Column(
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: Column(
         children: [
           // Sticky Search Bar
           Container(
@@ -135,6 +165,63 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 prefixIcon: Icon(Icons.search, color: AppTheme.subtleTextColor),
               ),
             ),
+          ),
+          
+          // Company Filter
+          Builder(
+            builder: (context) {
+              final Set<String> inventoryBrands = inventory.items.map((e) => e.brand).toSet();
+              final List<String> predefinedBrands = [
+                'Apple', 'Samsung', 'OnePlus', 'Vivo', 'Oppo', 'Realme', 
+                'Mi', 'Redmi', 'Poco', 'Motorola', 'Google Pixel', 'Nothing', 'Infinix', 'Tecno', 'Itel'
+              ];
+              
+              final Set<String> brands = {...predefinedBrands, ...inventoryBrands};
+
+              return Container(
+                color: AppTheme.backgroundColor,
+                height: 50,
+                width: double.infinity,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8.0),
+                      child: FilterChip(
+                        label: const Text('All', style: TextStyle(color: Colors.white)),
+                        selected: _selectedBrand == null,
+                        selectedColor: AppTheme.primaryColor,
+                        checkmarkColor: Colors.black,
+                        backgroundColor: AppTheme.surfaceColor,
+                        onSelected: (bool selected) {
+                          setState(() {
+                            _selectedBrand = null;
+                          });
+                        },
+                      ),
+                    ),
+                    ...brands.map((brand) {
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8.0),
+                        child: FilterChip(
+                          label: Text(brand, style: TextStyle(color: _selectedBrand == brand ? Colors.black : Colors.white)),
+                          selected: _selectedBrand == brand,
+                          selectedColor: AppTheme.primaryColor,
+                          checkmarkColor: Colors.black,
+                          backgroundColor: AppTheme.surfaceColor,
+                          onSelected: (bool selected) {
+                            setState(() {
+                              _selectedBrand = selected ? brand : null;
+                            });
+                          },
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              );
+            },
           ),
           
           // Inventory List
@@ -159,6 +246,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           final Map<String, String> displayNames = {};
                           
                           for (var item in inventory.items) {
+                            if (_selectedBrand != null && item.brand != _selectedBrand) continue;
+                            
                             final rawKey = '${item.brand} ${item.model}'.trim();
                             final normalizedKey = rawKey.toLowerCase();
                             
@@ -186,6 +275,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
           ),
         ],
+      ),
+      ),
       ),
     );
   }

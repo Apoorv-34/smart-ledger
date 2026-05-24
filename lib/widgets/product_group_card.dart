@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/inventory_item.dart';
+import '../models/customer.dart';
 import '../models/ledger_transaction.dart';
 import '../providers/inventory_provider.dart';
 import '../theme/app_theme.dart';
@@ -61,99 +62,127 @@ class ProductGroupCard extends StatelessWidget {
   }
 
   void _showSellOptionsDialog(BuildContext context, InventoryItem item) {
+    int quantity = 1;
+    double priceSold = item.retailPrice;
+    Customer? selectedCustomer;
+    
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: AppTheme.surfaceColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                title: const Text('Action Options', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-                subtitle: Text('${item.brand} ${item.model} (${item.qualityGrade})'),
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setState) {
+            final provider = Provider.of<InventoryProvider>(context, listen: false);
+            final customers = provider.customers;
+            
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Sell ${item.brand} ${item.model}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+                      const SizedBox(height: 16),
+                      // Quantity Row
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Quantity', style: TextStyle(color: Colors.white)),
+                          Row(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.remove_circle_outline, color: Colors.blue),
+                                onPressed: quantity > 1 ? () => setState(() {
+                                  quantity--;
+                                  priceSold = item.retailPrice * quantity;
+                                }) : null,
+                              ),
+                              Text('$quantity', style: const TextStyle(color: Colors.white, fontSize: 18)),
+                              IconButton(
+                                icon: const Icon(Icons.add_circle_outline, color: Colors.blue),
+                                onPressed: quantity < item.stockCount ? () => setState(() {
+                                  quantity++;
+                                  priceSold = item.retailPrice * quantity;
+                                }) : null,
+                              ),
+                            ],
+                          )
+                        ],
+                      ),
+                      // Custom Price
+                      TextField(
+                        keyboardType: TextInputType.number,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(labelText: 'Final Price (₹)', labelStyle: TextStyle(color: Colors.grey)),
+                        controller: TextEditingController(text: priceSold.toStringAsFixed(0))..selection = TextSelection.collapsed(offset: priceSold.toStringAsFixed(0).length),
+                        onChanged: (val) {
+                          priceSold = double.tryParse(val) ?? (item.retailPrice * quantity);
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      // Customer Dropdown
+                      DropdownButtonFormField<Customer>(
+                        decoration: const InputDecoration(labelText: 'Select Customer (Optional)', labelStyle: TextStyle(color: Colors.grey)),
+                        dropdownColor: AppTheme.backgroundColor,
+                        value: selectedCustomer,
+                        items: [
+                          const DropdownMenuItem<Customer>(value: null, child: Text('Anonymous Cash Sale', style: TextStyle(color: Colors.white))),
+                          ...customers.map((c) => DropdownMenuItem(value: c, child: Text(c.name, style: const TextStyle(color: Colors.white))))
+                        ],
+                        onChanged: (val) {
+                          setState(() { selectedCustomer = val; });
+                        },
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                              icon: const Icon(Icons.payments, color: Colors.white),
+                              label: const Text('Cash Sale', style: TextStyle(color: Colors.white)),
+                              onPressed: () async {
+                                await provider.sellItem(item, quantity: quantity, priceSold: priceSold, customerId: selectedCustomer?.id, type: 'CASH');
+                                Navigator.pop(ctx);
+                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sold for Cash'), backgroundColor: Colors.green));
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                              icon: const Icon(Icons.menu_book, color: Colors.white),
+                              label: const Text('Credit (Khata)', style: TextStyle(color: Colors.white)),
+                              onPressed: selectedCustomer == null ? null : () async {
+                                await provider.sellItem(item, quantity: quantity, priceSold: priceSold, customerId: selectedCustomer!.id, type: 'CREDIT');
+                                // Add to ledger
+                                final txn = LedgerTransaction(
+                                  customerId: selectedCustomer!.id!,
+                                  itemDetails: '${item.brand} ${item.model} (${item.qualityGrade}) x$quantity',
+                                  amount: priceSold,
+                                  type: 'CREDIT',
+                                  date: DateTime.now().toIso8601String(),
+                                );
+                                await provider.addLedgerTransaction(txn);
+                                Navigator.pop(ctx);
+                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sold on Credit to ${selectedCustomer!.name}'), backgroundColor: Colors.blue));
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              Divider(color: Colors.grey[800]),
-              ListTile(
-                leading: const Icon(Icons.payments, color: Colors.green),
-                title: const Text('Quick Cash Sale', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Provider.of<InventoryProvider>(context, listen: false).sellItem(item);
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sold for Cash'), backgroundColor: Colors.green));
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.menu_book, color: Colors.blue),
-                title: const Text('Sell on Credit (Khata)', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _showSelectCustomerDialog(context, item);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
-                title: const Text('Mark as Defective (RMA)', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Provider.of<InventoryProvider>(context, listen: false).markDefective(item);
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Moved to Defective Returns'), backgroundColor: Colors.orange));
-                },
-              ),
-              const SizedBox(height: 16),
-            ],
-          ),
-        );
-      }
-    );
-  }
-
-  void _showSelectCustomerDialog(BuildContext context, InventoryItem item) {
-    final provider = Provider.of<InventoryProvider>(context, listen: false);
-    final customers = provider.customers;
-    
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: AppTheme.surfaceColor,
-          title: const Text('Select Customer', style: TextStyle(color: Colors.white)),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: customers.isEmpty 
-              ? const Text('No customers found. Go to Khata to add one.', style: TextStyle(color: Colors.grey))
-              : ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: customers.length,
-                  itemBuilder: (c, i) {
-                    final cust = customers[i];
-                    return ListTile(
-                      title: Text(cust.name, style: TextStyle(color: Colors.white)),
-                      subtitle: Text('Due: ₹${cust.totalDue.toStringAsFixed(0)}', style: TextStyle(color: Colors.grey)),
-                      onTap: () async {
-                        await provider.sellItem(item); // Decrease stock & log sale
-                        
-                        // Add to ledger
-                        final txn = LedgerTransaction(
-                          customerId: cust.id!,
-                          itemDetails: '${item.brand} ${item.model} (${item.qualityGrade})',
-                          amount: item.retailPrice,
-                          type: 'CREDIT',
-                          date: DateTime.now().toIso8601String(),
-                        );
-                        await provider.addLedgerTransaction(txn);
-                        
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sold to ${cust.name} on Credit'), backgroundColor: Colors.blue));
-                      },
-                    );
-                  }
-              ),
-          ),
-          actions: [
-            TextButton(child: const Text('Cancel'), onPressed: () => Navigator.pop(ctx))
-          ],
+            );
+          }
         );
       }
     );
@@ -209,19 +238,23 @@ class ProductGroupCard extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppTheme.backgroundColor,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: const Color(0xFF30363D)),
-                      ),
-                      child: Text(
-                        item.qualityGrade,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.subtleTextColor,
-                          fontWeight: FontWeight.w600,
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.backgroundColor,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFF30363D)),
+                        ),
+                        child: Text(
+                          item.qualityGrade,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.subtleTextColor,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),

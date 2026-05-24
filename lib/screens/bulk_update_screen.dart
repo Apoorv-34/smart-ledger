@@ -17,7 +17,7 @@ class _BulkUpdateScreenState extends State<BulkUpdateScreen> {
   final TextEditingController _marginController = TextEditingController(text: '200');
   final TextEditingController _qtyController = TextEditingController(text: '0');
   
-  bool _isWholesaleMode = true; // True: Add Margin. False: Final Price
+  bool _isWholesaleMode = false; // False: Final Price (Custom). True: Add Margin.
   
   List<InventoryItem> _previewItems = [];
 
@@ -73,9 +73,9 @@ class _BulkUpdateScreenState extends State<BulkUpdateScreen> {
               child: Column(
                 children: [
                   RadioListTile<bool>(
-                    title: const Text('Add Standard Profit Margin', style: TextStyle(fontSize: 14)),
-                    subtitle: const Text('Prices in text are Wholesale. App will add margin to calculate Selling Price.', style: TextStyle(fontSize: 12, color: AppTheme.subtleTextColor)),
-                    value: true,
+                    title: const Text('Exact Selling Prices (Custom)', style: TextStyle(fontSize: 14)),
+                    subtitle: const Text('Prices in text are already final. No extra margin will be added.', style: TextStyle(fontSize: 12, color: AppTheme.subtleTextColor)),
+                    value: false,
                     groupValue: _isWholesaleMode,
                     activeColor: AppTheme.primaryColor,
                     onChanged: (bool? value) {
@@ -84,9 +84,9 @@ class _BulkUpdateScreenState extends State<BulkUpdateScreen> {
                     },
                   ),
                   RadioListTile<bool>(
-                    title: const Text('Exact Selling Prices', style: TextStyle(fontSize: 14)),
-                    subtitle: const Text('Prices in text are already final. No extra margin will be added.', style: TextStyle(fontSize: 12, color: AppTheme.subtleTextColor)),
-                    value: false,
+                    title: const Text('Add Standard Profit Margin', style: TextStyle(fontSize: 14)),
+                    subtitle: const Text('Prices in text are Wholesale. App will add margin to calculate Selling Price.', style: TextStyle(fontSize: 12, color: AppTheme.subtleTextColor)),
+                    value: true,
                     groupValue: _isWholesaleMode,
                     activeColor: AppTheme.primaryColor,
                     onChanged: (bool? value) {

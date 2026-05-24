@@ -1,5 +1,6 @@
 class Defect {
   final int? id;
+  final int? itemId; // Maps back to the inventory item
   final String itemDetails;
   final int quantity;
   final String dateLogged;
@@ -7,6 +8,7 @@ class Defect {
 
   Defect({
     this.id,
+    this.itemId,
     required this.itemDetails,
     required this.quantity,
     required this.dateLogged,
@@ -16,6 +18,7 @@ class Defect {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'item_id': itemId,
       'item_details': itemDetails,
       'quantity': quantity,
       'date_logged': dateLogged,
@@ -26,6 +29,7 @@ class Defect {
   factory Defect.fromMap(Map<String, dynamic> map) {
     return Defect(
       id: map['id'],
+      itemId: map['item_id'],
       itemDetails: map['item_details'],
       quantity: map['quantity'],
       dateLogged: map['date_logged'],
@@ -35,6 +39,7 @@ class Defect {
   
   Defect copyWith({
     int? id,
+    int? itemId,
     String? itemDetails,
     int? quantity,
     String? dateLogged,
@@ -42,6 +47,7 @@ class Defect {
   }) {
     return Defect(
       id: id ?? this.id,
+      itemId: itemId ?? this.itemId,
       itemDetails: itemDetails ?? this.itemDetails,
       quantity: quantity ?? this.quantity,
       dateLogged: dateLogged ?? this.dateLogged,

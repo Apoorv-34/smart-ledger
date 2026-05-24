@@ -34,7 +34,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
   }
 
   Future<void> _shareBillOnWhatsApp() async {
-    String message = '*Smart Ledger*\n_Your Retail Partner_\n\n';
+    String message = '*Smart Ledger*\n_Where Technology Meets Trust_\n\n';
     message += 'Hello ${widget.customer.name} 👋\n';
     message += 'Here is your current account statement:\n\n';
     
@@ -53,7 +53,11 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
     }
     
     message += '\n-------------------\n';
-    message += '*Total Outstanding Due: ₹${widget.customer.totalDue.toStringAsFixed(0)}*\n';
+    if (widget.customer.totalDue < 0) {
+      message += '*Total Advance Credit: ₹${widget.customer.totalDue.abs().toStringAsFixed(0)}*\n';
+    } else {
+      message += '*Total Outstanding Due: ₹${widget.customer.totalDue.toStringAsFixed(0)}*\n';
+    }
     message += '-------------------\n\n';
     message += 'Thank you for doing business with us! 🙏\n';
     message += 'Please feel free to reach out if you have any questions regarding this statement.';
@@ -126,7 +130,43 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
             icon: Icon(Icons.share, color: Colors.green.shade400),
             onPressed: _shareBillOnWhatsApp,
             tooltip: 'Share via WhatsApp',
-          )
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+            tooltip: 'Archive Customer',
+            onPressed: () {
+              // Strict balance check (accounting for float precision)
+              if (customer.totalDue.abs() > 0.01) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('Cannot archive customer with an active balance. Please settle their Khata first.'), 
+                  backgroundColor: Colors.red
+                ));
+                return;
+              }
+              
+              showDialog(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  backgroundColor: const Color(0xFF1E2128),
+                  title: const Text('Archive Customer?', style: TextStyle(color: Colors.white)),
+                  content: Text('Are you sure you want to archive ${customer.name}? Their history will be saved but they will be removed from your active list.', style: const TextStyle(color: Colors.white70)),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                      onPressed: () async {
+                        await Provider.of<InventoryProvider>(context, listen: false).archiveCustomer(customer.id!);
+                        Navigator.pop(ctx);
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Customer Archived.'), backgroundColor: Colors.orange));
+                      },
+                      child: const Text('Archive', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ],
       ),
       body: Column(
@@ -138,9 +178,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
             color: Colors.blue.shade800,
             child: Column(
               children: [
-                Text('Total Outstanding Due', style: TextStyle(color: Colors.blue.shade100, fontSize: 16)),
+                Text(customer.totalDue < 0 ? 'Total Advance Credit' : 'Total Outstanding Due', style: TextStyle(color: Colors.blue.shade100, fontSize: 16)),
                 SizedBox(height: 8),
-                Text('₹${customer.totalDue.toStringAsFixed(0)}', style: TextStyle(color: Colors.white, fontSize: 42, fontWeight: FontWeight.bold)),
+                Text('₹${customer.totalDue.abs().toStringAsFixed(0)}', style: TextStyle(color: customer.totalDue < 0 ? Colors.greenAccent : Colors.white, fontSize: 42, fontWeight: FontWeight.bold)),
                 SizedBox(height: 16),
                 ElevatedButton.icon(
                   onPressed: _showPaymentDialog,

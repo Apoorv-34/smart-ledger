@@ -103,8 +103,8 @@ class _KhataScreenState extends State<KhataScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text('Due Amount', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      Text('₹${customer.totalDue.toStringAsFixed(0)}', 
+                      Text(customer.totalDue < 0 ? 'Advance Credit' : 'Due Amount', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      Text('₹${customer.totalDue.abs().toStringAsFixed(0)}', 
                         style: TextStyle(
                           fontWeight: FontWeight.bold, 
                           fontSize: 16, 

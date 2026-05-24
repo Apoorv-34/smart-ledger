@@ -151,7 +151,12 @@ class ProductCard extends StatelessWidget {
               onPressed: outOfStock
                   ? null
                   : () {
-                      Provider.of<InventoryProvider>(context, listen: false).sellItem(item);
+                      Provider.of<InventoryProvider>(context, listen: false).sellItem(
+                        item,
+                        quantity: 1,
+                        priceSold: item.retailPrice,
+                        type: 'CASH'
+                      );
                       
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(

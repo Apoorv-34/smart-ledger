@@ -43,8 +43,11 @@ class PriceParser {
       } else if (firstWord.contains('sam')) {
         brand = 'Samsung';
         modelStr = modelParts.sublist(1).join(' ').trim();
-      } else if (firstWord.contains('mi') || firstWord.contains('poco') || firstWord.contains('redmi')) {
-        brand = 'Xiaomi';
+      } else if (firstWord.contains('mi')) {
+        brand = 'Mi';
+        modelStr = modelParts.sublist(1).join(' ').trim();
+      } else if (firstWord.contains('redmi')) {
+        brand = 'Redmi';
         modelStr = modelParts.sublist(1).join(' ').trim();
       } else if (firstWord.contains('vivo')) {
         brand = 'Vivo';
@@ -114,8 +117,6 @@ class PriceParser {
     };
   }
 
-  // A generic matcher. Extracts Model and Price from lines like:
-  // "iPh13 mini OLED 2500" -> Model: iPh13 mini, Quality: OLED, Price: 2500
   static List<InventoryItem> parseWhatsAppText(String text, double profitMargin, {bool isWholesalePrice = true, int defaultQuantity = 0}) {
     final List<InventoryItem> parsedItems = [];
     final lines = text.split('\n');
@@ -133,88 +134,89 @@ class PriceParser {
          if (lowerLine.contains('i phone') || lowerLine.contains('iphone') || lowerLine.contains('apple')) { currentBrand = 'Apple'; continue; }
          if (lowerLine.contains('vivo')) { currentBrand = 'Vivo'; continue; }
          if (lowerLine.contains('oppo')) { currentBrand = 'Oppo'; continue; }
-         if (lowerLine.contains('mi ') || lowerLine.contains('redmi') || lowerLine.contains('xiaomi')) { currentBrand = 'Xiaomi'; continue; }
+         if (lowerLine.contains('mi ')) { currentBrand = 'Mi'; continue; }
+         if (lowerLine.contains('redmi')) { currentBrand = 'Redmi'; continue; }
          if (lowerLine.contains('oneplus')) { currentBrand = 'OnePlus'; continue; }
          if (lowerLine.contains('moto')) { currentBrand = 'Motorola'; continue; }
          if (lowerLine.contains('infinix')) { currentBrand = 'Infinix'; continue; }
          if (lowerLine.contains('tecno')) { currentBrand = 'Tecno'; continue; }
          if (lowerLine.contains('itel')) { currentBrand = 'Itel'; continue; }
+         if (lowerLine.contains('poco')) { currentBrand = 'Poco'; continue; }
       }
 
-      // 1. Find price and optional quality modifier at the end
-      // Example: "480", "480/550(MEETOO)", "500(CROWN)"
-      final priceRegex = RegExp(r'([\d]+(?:[/\s-]+[\d]+)*)\s*(?:\((.*?)\))?\s*$');
-      final match = priceRegex.firstMatch(line);
+      String preprocessed = line
+         .replaceAll(RegExp(r'(one\+|1\+)', caseSensitive: false), 'OnePlus ')
+         .replaceAll(RegExp(r'I PHONE', caseSensitive: false), 'IPHONE')
+         .replaceAll(RegExp(r'WITH FRAME', caseSensitive: false), 'WF')
+         .replaceAll(RegExp(r'WITH SENSOR FLEX', caseSensitive: false), 'FLEX')
+         .replaceAll(RegExp(r'SET REMOVED', caseSensitive: false), 'PULLED');
 
-      if (match != null) {
-        final String rawPrices = match.group(1)!;
-        final String? modifier = match.group(2);
+      String rawModel = preprocessed;
+      String pricesStr = '';
+      
+      // Suppliers often use multiple dots to separate the model from the price
+      final dotSplit = preprocessed.split(RegExp(r'\.{2,}'));
+      if (dotSplit.length > 1) {
+          rawModel = dotSplit.first.trim();
+          pricesStr = dotSplit.sublist(1).join('.').trim();
+      } else {
+          // Fallback: look for numbers at the end of the string
+          final priceRegex = RegExp(r'([\d]+(?:[/\s-]+[\d]+)*)\s*(?:\((.*?)\))?\s*$');
+          final match = priceRegex.firstMatch(preprocessed);
+          if (match != null) {
+              pricesStr = preprocessed.substring(match.start).trim();
+              rawModel = preprocessed.substring(0, match.start).trim();
+          }
+      }
 
-        final String rawModelInfo = line.substring(0, match.start).trim();
+      final details = _extractDetails(rawModel, currentBrand);
+      final models = details['model']!.split('/');
+      
+      final options = pricesStr.split('/').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      
+      for (var modelStr in models) {
+         modelStr = modelStr.trim();
+         if (modelStr.isEmpty) continue;
 
-        // Preprocess aliases
-        String preprocessed = rawModelInfo
-           .replaceAll(RegExp(r'(one\+|1\+)', caseSensitive: false), 'OnePlus ')
-           .replaceAll(RegExp(r'I PHONE', caseSensitive: false), 'IPHONE')
-           .replaceAll(RegExp(r'WITH FRAME', caseSensitive: false), 'WF')
-           .replaceAll(RegExp(r'WITH SENSOR FLEX', caseSensitive: false), 'FLEX')
-           .replaceAll(RegExp(r'SET REMOVED', caseSensitive: false), 'PULLED');
+         if (options.isEmpty) {
+             parsedItems.add(InventoryItem(
+                brand: details['brand']!,
+                model: modelStr,
+                qualityGrade: details['quality']!,
+                wholesalePrice: 0.0,
+                retailPrice: 0.0,
+                stockCount: defaultQuantity,
+             ));
+             continue;
+         }
 
-        final details = _extractDetails(preprocessed, currentBrand);
-
-        // Split models by slash, e.g., "A30/A50/A50S" -> ["A30", "A50", "A50S"]
-        final models = details['model']!.split('/');
-
-        // Parse prices
-        final priceStrs = rawPrices.split(RegExp(r'[/\s-]+')).where((s) => s.isNotEmpty).toList();
-        List<double> parsedPrices = priceStrs.map((s) => double.tryParse(s) ?? 0.0).toList();
-
-        for (var modelStr in models) {
-           modelStr = modelStr.trim();
-           if (modelStr.isEmpty) continue;
-
-           // First price option
-           if (parsedPrices.isNotEmpty) {
-               double wholesale = parsedPrices[0];
-               double retail = isWholesalePrice ? wholesale + profitMargin : wholesale;
-
-               String quality = details['quality']!;
-               if (parsedPrices.length == 1 && modifier != null) {
-                  quality = quality == 'Standard' ? modifier.toUpperCase() : '$quality ${modifier.toUpperCase()}';
-               }
-
-               parsedItems.add(InventoryItem(
-                  brand: details['brand']!,
-                  model: modelStr,
-                  qualityGrade: quality,
-                  wholesalePrice: wholesale,
-                  retailPrice: retail,
-                  stockCount: defaultQuantity,
-               ));
-           }
-
-           // Second price option
-           if (parsedPrices.length > 1) {
-               double wholesale = parsedPrices[1];
-               double retail = isWholesalePrice ? wholesale + profitMargin : wholesale;
-
-               String quality = details['quality']!;
-               if (modifier != null) {
-                  quality = quality == 'Standard' ? modifier.toUpperCase() : '$quality ${modifier.toUpperCase()}';
-               } else {
-                  quality = '$quality Option 2';
-               }
-
-               parsedItems.add(InventoryItem(
-                  brand: details['brand']!,
-                  model: modelStr,
-                  qualityGrade: quality,
-                  wholesalePrice: wholesale,
-                  retailPrice: retail,
-                  stockCount: defaultQuantity,
-               ));
-           }
-        }
+         double lastPrice = 0.0;
+         for (var option in options) {
+             final priceMatch = RegExp(r'\d+').firstMatch(option);
+             double currentPrice = lastPrice;
+             if (priceMatch != null) {
+                 currentPrice = double.parse(priceMatch.group(0)!);
+                 lastPrice = currentPrice;
+             }
+             
+             String modifier = option.replaceAll(RegExp(r'\d+'), '').replaceAll(RegExp(r'[\(\)]'), '').trim();
+             
+             String quality = details['quality']!;
+             if (modifier.isNotEmpty) {
+                quality = quality == 'Standard' ? modifier.toUpperCase() : '$quality ${modifier.toUpperCase()}';
+             } else if (options.length > 1) {
+                quality = '$quality Option ${options.indexOf(option) + 1}'; 
+             }
+             
+             parsedItems.add(InventoryItem(
+                brand: details['brand']!,
+                model: modelStr,
+                qualityGrade: quality,
+                wholesalePrice: currentPrice,
+                retailPrice: currentPrice == 0.0 ? 0.0 : (isWholesalePrice ? currentPrice + profitMargin : currentPrice),
+                stockCount: defaultQuantity,
+             ));
+         }
       }
     }
 
